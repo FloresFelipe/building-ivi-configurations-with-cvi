@@ -1,12 +1,12 @@
-# IVI Configuration Builder (Clean Code Refactor)
+## IVI Configuration Builder (Clean Code Refactor)
 
-This project demonstrates how to programmatically create and manage an IVI (Interchangeable Virtual Instrument) configuration using the NI IVI Configuration Server API in C.
+This project demonstrates how to programmatically create and manage IVI (Interchangeable Virtual Instrument) configurations using the NI IVI Configuration Server API in C.
 
-The implementation follows **Uncle Bob's Clean Code principles**, focusing on:
+It follows **Clean Code principles**:
 - Readability
 - Separation of concerns
 - Reusability
-- Idempotent operations (safe to run multiple times)
+- Idempotent operations (safe re-execution)
 
 ---
 
@@ -14,83 +14,103 @@ The implementation follows **Uncle Bob's Clean Code principles**, focusing on:
 
 ```
 .
-├── main.c            # Application entry point (high-level orchestration)
-├── ivi_helpers.h     # Public API for helper utilities
-├── ivi_helpers.c     # Implementation of reusable IVI logic
+├── main.c           # High-level orchestration
+├── ivi_helpers.h    # Public helper API
+├── ivi_helpers.c    # IVI logic implementation
 ```
 
 ---
 
-## 🧠 Design Philosophy
+## 🧠 Design Overview
 
-This project is structured around two key layers:
+The project is divided into two clear layers:
 
 ### 1. High-Level Orchestration (`main.c`)
-- Describes the workflow of building an IVI configuration
-- Contains minimal logic
-- Reads like a **story**
+- Defines the workflow
+- Creates configurations
+- Uses helper functions only
+- Minimal logic ("reads like a story")
 
 ### 2. Helper Layer (`ivi_helpers.c`)
-- Encapsulates all IVI API interactions
-- Provides reusable, testable functions
-- Handles “get-or-create” patterns safely
+- Encapsulates IVI API calls
+- Implements reusable functions
+- Handles "get-or-create" safely
+- Manages configuration details
 
 ---
 
 ## ✅ What the Application Does
 
-The program:
+The application:
 
-1. Connects to the IVI Configuration Store (MAX)
-2. Creates or reuses:
-   - Software Module
-   - Driver Session
-   - Logical Name
-3. Configures the Driver Session for simulation
-4. Adds simulation-specific data components
-5. Links Logical Name → Driver Session
-6. Saves the configuration
+1. Loads the IVI Configuration Store
+2. Creates **two configurations**:
+
+### Configuration 1 (Simulated)
+- Driver session: `cviDmm`
+- Logical name: `MyDmm`
+- Uses simulation driver: `nisDmm`
+- Configures simulation-specific data
+
+### Configuration 2 (Real Instrument)
+- Driver session: `cviScope`
+- Logical name: `MyScope`
+- Uses real driver: `niScope`
+- Links software module directly
+
+3. For each configuration:
+- Creates or reuses Driver Session
+- Configures session properties
+- Applies simulation OR real driver setup
+- Creates or reuses Logical Name
+- Links Logical Name → Driver Session
+
+4. Saves configuration:
+- Attempts default save location
+- Falls back to user-defined path if needed
 
 ---
 
 ## 🔁 Idempotent Design
 
-All "create" operations follow a **get-or-create pattern**, meaning:
+All creation functions follow a **get-or-create pattern**:
 
-✅ Running the program multiple times will NOT:
-- Duplicate entries
-- Cause errors
-- Corrupt configuration
+✅ Safe to run multiple times  
+✅ No duplicate entries  
+✅ Existing items are reused  
 
 ---
 
-## 🔧 Main Workflow (`main.c`)
-
-The `main()` function is intentionally simple:
+## 🔧 Main Workflow (Simplified)
 
 ```c
-CHECK(Ivi_GetConfigStoreHandle(&store));
+CHECK(LoadConfigurationStore(&store));
 
-CHECK(GetOrCreateSoftwareModule(store, MODULE, &module));
-CHECK(GetOrCreateDriverSession(store, SESSION, &session));
+CreateNewConfiguration(... simulated config ...);
+CreateNewConfiguration(... real config ...);
 
-CHECK(ConfigureDriverSession(session));
-CHECK(ConfigureSimulationData(session, MODULE));
-
-CHECK(IviConfig_SetSessionSoftwareModuleReference(session, module));
-
-CHECK(GetOrCreateLogicalName(store, LOGICAL, &logical));
-CHECK(LinkLogicalName(logical, session));
-
-SaveConfiguration(store, FALLBACK);
+CHECK(SaveConfiguration(store, fallbackPath));
 ```
 
-👉 This reflects the desired Clean Code outcome:
-> "Code should read like well-written prose."
+Inside `CreateNewConfiguration()`:
+
+```c
+GetOrCreateDriverSession(...)
+ConfigureDriverSessionProperties(...)
+
+if (isSimulated)
+    ConfigureDriverSessionSimulationDriver(...)
+else
+    GetOrCreateSoftwareModule(...)
+    ConfigureDriverSessionInstrumentDriver(...)
+
+GetOrCreateLogicalName(...)
+LinkLogicalNameToSession(...)
+```
 
 ---
 
-## 🧰 Helper API Overview (`ivi_helpers.h`)
+## 🧰 Helper API Overview
 
 ### 🔹 Error Handling
 
@@ -98,61 +118,58 @@ SaveConfiguration(store, FALLBACK);
 int HandleError(ViStatus status);
 ```
 
-- Centralized error reporting
-- Logs IVI error messages
+- Centralized error checking
+- Prints IVI error messages
+- Used via `CHECK()` macro
 
 ---
 
-### 🔹 High-Level Operations
+### 🔹 Core Operations
 
-#### Software Module
+#### Configuration Store
 
 ```c
-ViStatus GetOrCreateSoftwareModule(...);
+ViStatus LoadConfigurationStore(...)
 ```
 
-Gets an existing module or creates it if missing.
+Loads IVI config store (MAX)
 
 ---
 
 #### Driver Session
 
 ```c
-ViStatus GetOrCreateDriverSession(...);
+ViStatus GetOrCreateDriverSession(...)
+ViStatus ConfigureDriverSessionProperties(...)
 ```
 
-Creates or reuses a session and prepares it for configuration.
+Configures:
+- Simulation = ON
+- Caching = ON
+- Range checking = ON
+
+> ⚠️ Note: Simulation is always enabled at property level, even for "real" config.
 
 ---
 
-#### Logical Name
+#### Software Module
 
 ```c
-ViStatus GetOrCreateLogicalName(...);
+ViStatus GetOrCreateSoftwareModule(...)
+ViStatus ConfigureDriverSessionInstrumentDriver(...)
 ```
 
-Creates or retrieves a logical alias for a driver session.
+Used for real instrument configurations.
 
 ---
 
-#### Configuration
+#### Simulation Configuration
 
 ```c
-ViStatus ConfigureDriverSession(...);
+ViStatus ConfigureDriverSessionSimulationDriver(...)
 ```
 
-Sets:
-- Simulation ON
-- Caching ON
-- Range checking ON
-
----
-
-```c
-ViStatus ConfigureSimulationData(...);
-```
-
-Creates or updates structured simulation settings:
+Creates structure:
 
 ```
 NI Settings
@@ -162,10 +179,11 @@ NI Settings
 
 ---
 
-#### Linking
+#### Logical Name
 
 ```c
-ViStatus LinkLogicalName(...);
+ViStatus GetOrCreateLogicalName(...)
+ViStatus LinkLogicalNameToSession(...)
 ```
 
 Links:
@@ -178,68 +196,53 @@ Logical Name → Driver Session
 #### Persistence
 
 ```c
-void SaveConfiguration(...);
+ViStatus SaveConfiguration(...)
 ```
 
-- Attempts default save location (MAX)
-- Falls back to user-defined path if needed
+- Tries default IVI config path
+- Falls back to user path if needed
 
 ---
 
-## 🔹 Low-Level Reusable Helpers
+### 🔹 Low-Level Reusable Helpers
 
-These eliminate repeated logic:
+These eliminate repetitive IVI API calls:
 
-### Structure handling
-
-```c
-GetOrCreateStructure(...)
-```
-
----
-
-### Data components
-
-```c
-GetOrCreateDataComponent(...)
-```
+- `GetOrCreateStructure`
+- `GetOrCreateDataComponent`
+- `SetStringValue`
+- `SetBooleanValue`
 
 ---
 
-### Value setters
+## ⚠️ Important Behavioral Notes
 
-```c
-SetStringValue(...)
-SetBooleanValue(...)
-```
-
----
-
-## ✅ Key Improvements from Original Code
-
-| Problem | Solution |
-|--------|--------|
-| Large `main()` | Split into small functions |
-| Code duplication | Reusable helpers |
-| Magic strings | Central constants |
-| Unsafe re-runs | Idempotent logic |
-| Mixed responsibilities | Clear separation of layers |
+- Driver sessions are always configured with:
+  - Simulation = TRUE
+  - Even for "real" configurations
+- The distinction between simulated vs real is done by:
+  - Adding simulation data OR
+  - Assigning a software module
 
 ---
 
 ## 🚀 Build & Run
 
 ### Requirements
+
 - NI IVI Drivers installed
 - NI Measurement & Automation Explorer (MAX)
 
 ### Compile
-Use your preferred compiler/project setup (e.g., LabWindows/CVI or Visual Studio).
+
+Use:
+- LabWindows/CVI
+- Visual Studio (with IVI libraries)
 
 ### Run
-Simply execute the program:
+
 ```
-Run → Program creates/updates config safely
+Run program → Configurations created/updated safely
 ```
 
 ---
@@ -247,10 +250,20 @@ Run → Program creates/updates config safely
 ## 💡 Example Output
 
 ```
-=== IVI DMM Config ===
-Using existing driver session.
-Structure 'NI Settings' exists.
-Component 'Simulation Driver Session' exists.
+Configuration Store Loaded!
+
+Creating Configuration 1
+========================
+Creating driver session...
+Creating logical name...
+
+Creating Configuration 2
+========================
+Creating driver session...
+Creating software module...
+Creating logical name...
+
+IVI Configuration Saved Successfully!
 Done.
 ```
 
@@ -258,24 +271,21 @@ Done.
 
 ## 📈 Future Improvements
 
-Possible next steps:
-
-- Convert to C++ (RAII for automatic cleanup)
-- Add unit tests for helper layer
-- Create a configuration "builder" API
-- Add logging levels (INFO / ERROR / DEBUG)
+- Toggle simulation property based on configuration type
+- Add hardware asset configuration
+- Introduce logging levels (INFO / DEBUG / ERROR)
+- Convert to C++ (RAII cleanup)
+- Add unit tests for helper functions
 
 ---
 
 ## ✅ Summary
 
-This project demonstrates how to:
+This project shows how to:
 
-✅ Write clean, maintainable C code  
-✅ Wrap complex APIs into reusable layers  
-✅ Apply professional software design to hardware/configuration code  
+✅ Structure IVI configuration code cleanly  
+✅ Wrap complex APIs into reusable helpers  
+✅ Implement safe, idempotent configuration logic  
+✅ Separate orchestration from implementation  
 
----
-
-> "Clean code is not written by following a set of rules.  
-> Clean code is written by programmers who care." – Robert C. Martin
+> "Clean code is code that is easy to understand and easy to change." – Robert C. Martin
